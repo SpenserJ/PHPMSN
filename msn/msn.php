@@ -1,4 +1,5 @@
 <?php
+set_time_limit(0);
 require_once 'auth.class.php';
 require_once 'challenge.class.php';
 require_once 'xml2array.class.php';
