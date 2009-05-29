@@ -9,7 +9,8 @@ class MSN {
     private $currentMsg = 1;
     private $nickname   = '';
     private $doublePing = false;
-    public  $loopTime   = 1;
+    public  $loopTime   = 1000;
+    public  $output     = false;
     public  $functions  = array('messageReceived',
                                 'friendStatusChanged', 
                                 'incomingCall', 
@@ -250,7 +251,9 @@ class MSN {
                 $this->doublePing = true;
             }
             $this->runUserFunction('afterLoop');
-            sleep($this->loopTime);
+            if ($this->loopTime > 0) {
+                usleep($this->loopTime);
+            }
         }
         $this->outputMessage(0, 'Connection was terminated. We did a bad thing :(');
         exit;

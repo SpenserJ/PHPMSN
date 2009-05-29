@@ -1,7 +1,7 @@
 <?php
 require_once 'msn/msn.php';
 $msn = new MSN();
-$msn->loopTime = 2;
+$msn->loopTime = 2000;
 $msn->output   = false;
 $msn->functions['messageReceived']     = messageReceived;
 $msn->functions['friendStatusChanged'] = friendStatusChanged;
