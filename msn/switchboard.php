@@ -2,7 +2,6 @@
 class Switchboard {
     private $connection;
     private $currentMsg  = 1;
-    public  $lastMessage = 0;
     
     private function connectToServer($server = '', $port = 1863) {
         if (is_resource($this->connection) === true) {
