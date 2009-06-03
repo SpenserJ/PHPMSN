@@ -54,92 +54,63 @@ class MSN {
         $this->sendCommand('VER ? MSNP15 CVR0');
         $wait = false;
         while (feof($this->connection) === false) {
-            if ($wait === true) {
-                $response .= "\r\n" . $this->readResponse();
-            } else {
-                $response = $this->readResponse();
-            }
-            $onHold = '';
-            $responseArray = $this->explodeResponse($response);
-            for ($i=0; $i<count($responseArray); $i++) {
-                $this->outputMessage(3, $responseArray[$i]);
-                $command = explode(' ', $responseArray[$i]);
-                switch ($command[0]) {
-                    case 'VER':
-                        $this->sendCommand('CVR ? 0x0409 winnt 5.1 i386 MSG80BETA 8.0.0566 msmsgs ' . $username);
-                        break;
-                    case 'CVR':
-                        $this->sendCommand('USR ? TWN I ' . $username);
-                        break;
-                    case 'XFR':
-                        $server = explode(':', $command[3]);
-                        $this->currentMsg = 1;
-                        if ($this->connectToServer($server[0], $server[1]) === false) {
-                            exit;
-                        }
-                        $this->sendCommand('VER ? MSNP15 CVR0');
-                        break;
-                    case 'GCF':
-                        $this->policyXML = $this->readResponse($command[2]);
-                        break;
-                    case '<Policies><Policy':
-                        if (strpos($responseArray[$i], '</Policies>') === false) {
-                            $wait = true;
-                            break;
-                        } else {
-                            $wait = false;
-                            $this->policyXML = substr($responseArray[$i], 0, strpos($responseArray[$i], '</Policies>') + strlen('</Policies>'));
-                            $command = explode(' ', substr($responseArray[$i], strpos($responseArray[$i], '</Policies>') + strlen('</Policies>')));
-                            break;
-                        }
-                    case 'USR':
-                        if ($command[2] == 'TWN') {
-                            $ticketMaster = new Authentication();
-                            $ticket = $ticketMaster->getTicket($this->username, $this->password, $command[4]);
-                            if ($ticket === false) {
-                                $this->outputMessage(0, 'We failed to authenticate ourselves!');
-                                exit;
-                            }
-                            $this->sendCommand('USR ? TWN S ' . $ticket);
-                        } else if ($command[2] == 'OK') {
-                            //return true;
-                        } else {
-                            $this->outputMessage(0, 'Say wha?');
-                            exit;
-                        }
-                        break;
-                    case 'MSG':
-                        $profile = explode("\r\n", $this->readResponse($command[3]));
-                        foreach ($profile as $thisProfile) {
-                            $thisProfile = explode(': ', $thisProfile);
-                            if (count($thisProfile) == 2) {
-                                $this->profile[$thisProfile[0]] = $thisProfile[1];
-                            }
-                        }
-                        if ($this->profile['Content-Type'] == 'text/x-msmsgsprofile; charset=UTF-8') {
-                            $this->getMembershipList();
-                            $this->getAddressBook();
-                            $this->sendCommand('BLP ? AL');
-                        }
-                        break;
-                    case 'BLP':
-                        $this->sendCommand('ADL ? ' . strlen($this->adl), $this->adl);
-                        $this->sendCommand('PRP ? MFN ' . $this->nickname);
-                        $this->sendCommand('CHG ? NLN');
-                        break;
-                    case 'ADL':
-                        break;
-                    case 'PRP':
-                        break;
-                    case 'CHG':
-                        return true;
-                        break;
-                    default:
-                        break;
-                }
-                if ($wait === true) {
+            $response = $this->readResponse();
+            $this->outputMessage(3, $response);
+            $command = explode(' ', $response);
+            switch ($command[0]) {
+                case 'VER':
+                    $this->sendCommand('CVR ? 0x0409 winnt 5.1 i386 MSG80BETA 8.0.0566 msmsgs ' . $username);
                     break;
-                }
+                case 'CVR':
+                    $this->sendCommand('USR ? TWN I ' . $username);
+                    break;
+                case 'XFR':
+                    $server = explode(':', $command[3]);
+                    $this->currentMsg = 1;
+                    if ($this->connectToServer($server[0], $server[1]) === false) {
+                        exit;
+                    }
+                    $this->sendCommand('VER ? MSNP15 CVR0');
+                    break;
+                case 'GCF':
+                    $this->policyXML = $this->readResponse($command[2]);
+                    break;
+                case 'USR':
+                    if ($command[2] == 'TWN') {
+                        $ticketMaster = new Authentication();
+                        $ticket = $ticketMaster->getTicket($this->username, $this->password, $command[4]);
+                        if ($ticket === false) {
+                            $this->outputMessage(0, 'We failed to authenticate ourselves!');
+                            exit;
+                        }
+                        $this->sendCommand('USR ? TWN S ' . $ticket);
+                    } else if ($command[2] != 'OK') {
+                        $this->outputMessage(0, 'Say wha?');
+                        exit;
+                    }
+                    break;
+                case 'MSG':
+                    $profile = explode("\r\n", $this->readResponse($command[3]));
+                    foreach ($profile as $thisProfile) {
+                        $thisProfile = explode(': ', $thisProfile);
+                        if (count($thisProfile) == 2) {
+                            $this->profile[$thisProfile[0]] = $thisProfile[1];
+                        }
+                    }
+                    $this->getMembershipList();
+                    $this->getAddressBook();
+                    $this->sendCommand('BLP ? AL');
+                    break;
+                case 'BLP':
+                    $this->sendCommand('ADL ? ' . strlen($this->adl), $this->adl);
+                    $this->sendCommand('PRP ? MFN ' . $this->nickname);
+                    $this->sendCommand('CHG ? NLN');
+                    break;
+                case 'CHG':
+                    return true;
+                    break;
+                default:
+                    break;
             }
         }
         $this->outputMessage(0, 'Connection was terminated. We did a bad thing :(');
@@ -151,94 +122,73 @@ class MSN {
         while (feof($this->connection) === false) {
             $this->runUserFunction('beforeLoop');
             $response = $this->readResponse();
-            if ($waitFor == '') {
-                $continue = true;
-            } else if ($waitFor != '' && strpos($response, $waitFor) !== false) {
-                $continue = true;
-                $onHold .= $response;
-            } else {
-                $continue = false;
-                $onHold .= $response . "\r\n";
-            }
-            if ($continue === true) {
-                if ($onHold != '') {
-                    $response = $onHold;
-                }
-                $onHold = '';
-                $responseArray = $this->explodeResponse($response);
-                for ($i=0; $i<count($responseArray); $i++) {
-                    $this->outputMessage(3, $responseArray[$i]);
-                    $command = explode(' ', $responseArray[$i]);
-                    switch ($command[0]) {
-                        case 'MSG':
-                            $this->readResponse($command[3]);
-                            $this->outputMessage(1, 'We don\'t care about all they just gave us!');
-                            break;
-                        case 'FLN':
-                            $this->friends[$command[1]]['status'] = 'FLN';
-                            $this->outputMessage(1, $command[1] . ' just changed their status to FLN');
-                            $this->runUserFunction('friendStatusChanged', $command[1], 'FLN');
-                            break;
-                        case 'NLN':
-                            $this->friends[$command[2]]['status'] = 'NLN';
-                            $this->friends[$command[2]]['name']   = urldecode($command[4]);
-                            $this->outputMessage(1, $command[4] . ' just changed their status to NLN');
-                            $this->runUserFunction('friendStatusChanged', $command[2], $command[1], $command[4]);
-                            break;
-                        case 'ILN':
-                            $this->friends[$command[3]]['status'] = $command[2];
-                            $this->friends[$command[3]]['name']   = urldecode($command[5]);
-                            $this->outputMessage(1, $command[3] . ' just changed their status to ' . $command[2]);
-                            $this->runUserFunction('friendStatusChanged', $command[3], $command[2], $command[5]);
-                            break;
-                        case 'UBX':
-                            $ubx = $this->readResponse($command[3]);
-                            $this->outputMessage(1, 'We don\'t care about PSMs!');
-                            break;
-                        case 'CHL':
-                            $challenge = new Challenge();
-                            $this->sendCommand('QRY ? PROD0090YUAUV{2B 32', $challenge->generateCHLHash($command[2], 'PROD0090YUAUV{2B'));
-                            break;
-                        case 'RNG':
-                            if ($this->runUserFunction('incomingCall', $command) === false) {
-                                $switchboard = new Switchboard();
-                                $switchboard->output = $this->output;
-                                if ($switchboard->answerCall($this->username, $command[2], $command[4], $command[1]) === true) {
-                                    $this->convos[$command[5]] = $switchboard;
-                                    $this->outputMessage(1, 'We can now talk to ' . $command[6] . ' (' . $command[5] . ')');
-                                }
-                            }
-                            break;
-                        case 'XFR':
-                            if ($command[2] == 'SB') {
-                                $switchboard = new Switchboard();
-                                $switchboard->output = $this->output;
-                                foreach ($this->convoQueue as $toCall => $message) {
-                                    if ($switchboard->callUser($this->username, $toCall, $command[3], $command[5]) === true) {
-                                        $this->convos[$toCall] = $switchboard;
-                                        $this->outputMessage(1, 'We can now talk to ' . $toCall);
-                                        $this->convos[$toCall]->sendMessage($message);
-                                        unset($this->convoQueue[$toCall]);
-                                        break;
-                                    }
-                                }
-                            }
-                            break;
-                        case 'QNG':
-                            $this->nextPing   = mktime() + $command[1];
-                            $this->doublePing = false;
-                            break;
-                        case 'ADL':
-                            $adl = $this->readResponse($command[2]);
-                            echo 'ADD REQUEST: "' . $adl . '"' . $command[2] . '<br /><br />';
-                            flush();
-                        default:
-                            break;
+            $this->outputMessage(3, $response);
+            $command = explode(' ', $response);
+            switch ($command[0]) {
+                case 'MSG':
+                    $this->readResponse($command[3]);
+                    $this->outputMessage(1, 'We don\'t care about all they just gave us!');
+                    break;
+                case 'FLN':
+                    $this->friends[$command[1]]['status'] = 'FLN';
+                    $this->outputMessage(1, $command[1] . ' just changed their status to FLN');
+                    $this->runUserFunction('friendStatusChanged', $command[1], 'FLN');
+                    break;
+                case 'NLN':
+                    $this->friends[$command[2]]['status'] = 'NLN';
+                    $this->friends[$command[2]]['name']   = urldecode($command[4]);
+                    $this->outputMessage(1, $command[4] . ' just changed their status to NLN');
+                    $this->runUserFunction('friendStatusChanged', $command[2], $command[1], $command[4]);
+                    break;
+                case 'ILN':
+                    $this->friends[$command[3]]['status'] = $command[2];
+                    $this->friends[$command[3]]['name']   = urldecode($command[5]);
+                    $this->outputMessage(1, $command[3] . ' just changed their status to ' . $command[2]);
+                    $this->runUserFunction('friendStatusChanged', $command[3], $command[2], $command[5]);
+                    break;
+                case 'UBX':
+                    $ubx = $this->readResponse($command[3]);
+                    $this->outputMessage(1, 'We don\'t care about PSMs!');
+                    break;
+                case 'CHL':
+                    $challenge = new Challenge();
+                    $this->sendCommand('QRY ? PROD0090YUAUV{2B 32', $challenge->generateCHLHash($command[2], 'PROD0090YUAUV{2B'));
+                    break;
+                case 'RNG':
+                    if ($this->runUserFunction('incomingCall', $command) === false) {
+                        $switchboard = new Switchboard();
+                        $switchboard->output = $this->output;
+                        if ($switchboard->answerCall($this->username, $command[2], $command[4], $command[1]) === true) {
+                            $this->convos[$command[5]] = $switchboard;
+                            $this->outputMessage(1, 'We can now talk to ' . $command[6] . ' (' . $command[5] . ')');
+                        }
                     }
-                    if ($waitFor != '') {
-                        $onHold = $responseArray[$i] . "\r\n";
+                    break;
+                case 'XFR':
+                    if ($command[2] == 'SB') {
+                        $switchboard = new Switchboard();
+                        $switchboard->output = $this->output;
+                        foreach ($this->convoQueue as $toCall => $message) {
+                            if ($switchboard->callUser($this->username, $toCall, $command[3], $command[5]) === true) {
+                                $this->convos[$toCall] = $switchboard;
+                                $this->outputMessage(1, 'We can now talk to ' . $toCall);
+                                $this->convos[$toCall]->sendMessage($message);
+                                unset($this->convoQueue[$toCall]);
+                                break;
+                            }
+                        }
                     }
-                }
+                    break;
+                case 'QNG':
+                    $this->nextPing   = mktime() + $command[1];
+                    $this->doublePing = false;
+                    break;
+                case 'ADL':
+                    $adl = $this->readResponse($command[2]);
+                    echo 'ADD REQUEST: "' . $adl . '"' . $command[2] . '<br /><br />';
+                    flush();
+                default:
+                    break;
             }
             if (count($this->convos) > 0) {
                 foreach ($this->convos as $convo) {
@@ -301,23 +251,6 @@ class MSN {
         }
         $this->nickname = str_replace(' ', '%20', $nickname);
         $this->sendCommand('PRP ? MFN ' . $this->nickname);
-    }
-    
-    private function explodeResponse($response) {
-        /*$commands = array('VER', 'CVR', 'XFR', 'USR', 'GCF', 'MSG', 'BLP', 'ADL', 'PRP', 'CHG', 'ILN 0', 'NLN NLN', 'FLN', 'UBX', 'CHL', 'RNG');
-        $responseTemp = $response;
-        foreach ($commands as $command) {
-            if (strpos($responseTemp, $command) !== false) {
-                $responseTemp = explode($command, $responseTemp);
-                $responseTemp = implode("\r\n\r\n\r\n" . $command, $responseTemp);
-            }
-        }
-        $responseTemp = explode("\r\n\r\n\r\n", $responseTemp);
-        if ($responseTemp[0] == '') {
-            array_shift($responseTemp);
-        }
-        return $responseTemp;*/
-        return array($response);
     }
     
     private function getMembershipList() {

@@ -23,34 +23,23 @@ class Switchboard {
         $this->connectToServer($server[0], $server[1]);
         $this->sendCommand('USR ? ' . $ourUsername . ' ' . $hash);
         while (feof($this->connection) === false) {
-            if ($wait === true) {
-                $response .= "\r\n" . $this->readResponse();
-            } else {
-                $response = $this->readResponse();
-            }
-            $onHold = '';
-            $responseArray = $this->explodeResponse($response);
-            for ($i=0; $i<count($responseArray); $i++) {
-                $this->outputMessage(3, $responseArray[$i]);
-                $command = explode(' ', $responseArray[$i]);
-                switch ($command[0]) {
-                    case 'USR':
-                        if ($command[2] != 'OK') {
-                            $this->outputMessage(2, 'We failed to contact ' . $username);
-                            return false;
-                        } else {
-                            $this->sendCommand('CAL ? ' . $username);
-                        }
-                        break;
-                    case 'JOI':
-                        $this->outputMessage(1, $username . ' joined the conversation and we can now talk to them!');
-                        return true;
-                    default:
-                        break;
-                }
-                if ($wait === true) {
+            $response = $this->readResponse();
+            $this->outputMessage(3, $response);
+            $command = explode(' ', $response);
+            switch ($command[0]) {
+                case 'USR':
+                    if ($command[2] != 'OK') {
+                        $this->outputMessage(2, 'We failed to contact ' . $username);
+                        return false;
+                    } else {
+                        $this->sendCommand('CAL ? ' . $username);
+                    }
                     break;
-                }
+                case 'JOI':
+                    $this->outputMessage(1, $username . ' joined the conversation and we can now talk to them!');
+                    return true;
+                default:
+                    break;
             }
         }
     }
@@ -123,23 +112,6 @@ class Switchboard {
         $this->sendCommand('MSG ? A ' . strlen($toSend), $toSend);
     }
     
-    private function explodeResponse($response) {
-        $commands = array('ACK');
-        $responseTemp = $response;
-        foreach ($commands as $command) {
-            if (strpos($responseTemp, $command) !== false) {
-                $responseTemp = explode($command, $responseTemp);
-                $responseTemp = implode("\r\n\r\n\r\n" . $command, $responseTemp);
-            }
-        }
-        $responseTemp = explode("\r\n\r\n\r\n", $responseTemp);
-        if ($responseTemp[0] == '') {
-            array_shift($responseTemp);
-        }
-        //print_r($responseTemp);
-        return $responseTemp;
-    }
-    
     private function sendCommand($command, $data = '') {
         if (substr($command, 4, 1) != '?') {
             return false;
@@ -169,7 +141,7 @@ class Switchboard {
     }
     
     private function outputMessage($type, $message) {
-        if ($this->output == false && $type != 0) {
+        if (($this->output == false && $type != 0) || $message == '') {
             return;
         }
         $message = htmlentities(print_r($message, true));
