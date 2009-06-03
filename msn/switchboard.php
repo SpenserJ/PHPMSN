@@ -1,7 +1,8 @@
 <?php
 class Switchboard {
-    private $currentMsg = 1;
     private $connection;
+    private $currentMsg  = 1;
+    public  $lastMessage = 0;
     
     private function connectToServer($server = '', $port = 1863) {
         if (is_resource($this->connection) === true) {
@@ -99,8 +100,20 @@ class Switchboard {
                 unset($messages[5]);
                 $messages = array_values($messages);
             }
+            if (stripos($messages[5], 'Chat-Logging') !== false) {
+                return false;
+            }
             return $messages;
+        } else if ($command[0] == 'ACK') {
+            $this->outputMessage(3, $messages);
+            // We need to log whether the message went through properly!
+        } else if ($command[0] == 'BYE') {
+            $this->outputMessage(1, 'The conversation has been closed by the servers');
+            return 'BYE';
         } else {
+            if ($messages != '') {
+                $this->outputMessage(3, $messages);
+            }
             return false;
         }
     }

@@ -228,6 +228,10 @@ class MSN {
                             $this->nextPing   = mktime() + $command[1];
                             $this->doublePing = false;
                             break;
+                        case 'ADL':
+                            $adl = $this->readResponse($command[2]);
+                            echo 'ADD REQUEST: "' . $adl . '"' . $command[2] . '<br /><br />';
+                            flush();
                         default:
                             break;
                     }
@@ -238,9 +242,13 @@ class MSN {
             }
             if (count($this->convos) > 0) {
                 foreach ($this->convos as $convo) {
-                    while (($messages = $convo->checkMessages()) !== false) {
-                        $this->outputMessage(3, $messages);
-                        $this->runUserFunction('messageReceived', $messages, $convo);
+                    while (($messages =  $convo->checkMessages()) !== false) {
+                        if ($messages == 'BYE') {
+                            unset($this->convos[array_search($convo, $this->convos)]);
+                        } else {
+                            $this->outputMessage(3, $messages);
+                            $this->runUserFunction('messageReceived', $messages, $convo);
+                        }
                     }
                 }
             }
@@ -272,6 +280,9 @@ class MSN {
     }
     
     public function messageUser($username, $message) {
+        if ($username == '' || $message == '') {
+            return false;
+        }
         if (isset($this->convos[$username]) === false) {
             if ($this->convoQueue[$username] == '') {
                 $this->convoQueue[$username] =  $message;
@@ -293,7 +304,7 @@ class MSN {
     }
     
     private function explodeResponse($response) {
-        $commands = array('VER', 'CVR', 'XFR', 'USR', 'GCF', 'MSG', 'BLP', 'ADL', 'PRP', 'CHG', 'ILN 0', 'NLN NLN', 'FLN', 'UBX', 'CHL', 'RNG');
+        /*$commands = array('VER', 'CVR', 'XFR', 'USR', 'GCF', 'MSG', 'BLP', 'ADL', 'PRP', 'CHG', 'ILN 0', 'NLN NLN', 'FLN', 'UBX', 'CHL', 'RNG');
         $responseTemp = $response;
         foreach ($commands as $command) {
             if (strpos($responseTemp, $command) !== false) {
@@ -305,7 +316,8 @@ class MSN {
         if ($responseTemp[0] == '') {
             array_shift($responseTemp);
         }
-        return $responseTemp;
+        return $responseTemp;*/
+        return array($response);
     }
     
     private function getMembershipList() {
@@ -388,7 +400,7 @@ class MSN {
     }
     
     private function outputMessage($type, $message) {
-        if ($this->output == false && $type != 0) {
+        if (($this->output == false && $type != 0) || $message == '') {
             return;
         }
         $message = htmlentities(print_r($message, true));

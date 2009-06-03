@@ -1,22 +1,24 @@
 <?php
 require_once 'msn/msn.php';
 $msn = new MSN();
-$msn->loopTime = 2000;
-$msn->output   = false;
 $msn->functions['messageReceived']     = messageReceived;
-$msn->functions['friendStatusChanged'] = friendStatusChanged;
 $msn->signIn('username', 'password', 'display_name');
 
 function messageReceived($message, $convo) {
     if (strpos($message[3], 'TypingUser') !== false) {
-        $convo->sendMessage('You are typing!');
-    } else {
-        $convo->sendMessage('You said "' . $message[5] . '"');
+        // They are typing
+        return;
     }
-}
-
-function friendStatusChanged($friend, $status, $newName = '') {
-    echo $friend . '(' . $newName . ') changed their status to ' . $status . '<br />';
-    flush();
+    switch(strtolower($message)) {
+        case 'what time is it?':
+            $convo->sendMessage('It is currently ' . date('g:i:sA', mktime());
+            break;
+        case 'what is your name?':
+            $convo->sendMessage('My name is dot the bot!');
+            break
+        default:
+            $convo->sendMessage('I don\' know what to do with your message!');
+            break;
+    }
 }
 ?>
