@@ -1,5 +1,8 @@
 <?php
+// We need to set a timelimit of 0 so the script runs infinitely
 set_time_limit(0);
+
+// Lets require all related classes
 require_once 'auth.class.php';
 require_once 'challenge.class.php';
 require_once 'xml2array.class.php';
@@ -10,6 +13,7 @@ class MSN {
     private $currentMsg = 1;
     private $nickname   = '';
     private $doublePing = false;
+    private $authenticated = false;
     public  $loopTime   = 1000;
     public  $output     = false;
     public  $functions  = array('messageReceived',
@@ -18,177 +22,58 @@ class MSN {
                                 'beforeLoop',
                                 'afterLoop');
     
-    public function signIn($username, $password, $nickname) {
-        $this->nickname = str_replace(' ', '%20', $nickname);
-        $this->connect($username, $password);
-        $this->handleNS();
+    /**
+     * Sign into msn with the specified account information
+     * 
+     * @author Spenser Jones
+     * @param  string $email contains the email address to use in authentication
+     * @param  string $password contains the password used in authentication
+     * @param  string $nickname is an optional parameter that defaults to $email
+     */
+    public function signIn($email, $password, $nickname = '') {
+        if (empty($nickname) === true) {
+            $nickname = $email;
+        }
+        $this->nickname = rawurlencode($nickname);
+        $this->email = $email;
+        $this->password = $password;
+        $this->handleCommunications();
     }
     
+    /**
+     * Connect to the messenger server and save (or replace if one already exists) the connection
+     * 
+     * @author Spenser Jones
+     * @param  string $server defaults to the standard roundrobin messenger gateway
+     * @param  int $port defaults to the standard messenger port
+     */
     private function connectToServer($server = 'messenger.hotmail.com', $port = 1863) {
         if (is_resource($this->connection) === true) {
             unset($this->connection);
+            $this->authenticated = false;
         }
         $this->connection = @fsockopen($server, $port, $errorno, $errorstr, 5);
         if ($this->connection === false) {
             $this->outputMessage(0, 'Failed to connect to ' . $server . ':' . $port);
-            return false;
         }
+        stream_set_blocking($this->connection, 0);
         $this->server = $server;
         $this->port   = $port;
         $this->outputMessage(1, 'Connected to ' . $server . ':' . $port . ' successfully!');
     }
     
-    private function checkConnection($tryConnect = true, $server = 'messenger.hotmail.com', $port = 1863) {
-        $connected = is_resource($this->connection);
-        if ($connected === false && $tryConnect === true) {
-            return $this->connectToServer($server, $port);
-        } else {
-            return $connected;
-        }
-    }
-    
-    public function connect($username, $password) {
-        $this->username = $username;
-        $this->password = $password;
+    public function handleCommunications() {
         $this->connectToServer();
         $this->sendCommand('VER ? MSNP15 CVR0');
-        $wait = false;
         while (feof($this->connection) === false) {
-            $response = $this->readResponse();
-            $this->outputMessage(3, $response);
-            $command = explode(' ', $response);
-            switch ($command[0]) {
-                case 'VER':
-                    $this->sendCommand('CVR ? 0x0409 winnt 5.1 i386 MSG80BETA 8.0.0566 msmsgs ' . $username);
-                    break;
-                case 'CVR':
-                    $this->sendCommand('USR ? TWN I ' . $username);
-                    break;
-                case 'XFR':
-                    $server = explode(':', $command[3]);
-                    $this->currentMsg = 1;
-                    if ($this->connectToServer($server[0], $server[1]) === false) {
-                        exit;
-                    }
-                    $this->sendCommand('VER ? MSNP15 CVR0');
-                    break;
-                case 'GCF':
-                    $this->policyXML = $this->readResponse($command[2]);
-                    break;
-                case 'USR':
-                    if ($command[2] == 'TWN') {
-                        $ticketMaster = new Authentication();
-                        $ticket = $ticketMaster->getTicket($this->username, $this->password, $command[4]);
-                        if ($ticket === false) {
-                            $this->outputMessage(0, 'We failed to authenticate ourselves!');
-                            exit;
-                        }
-                        $this->sendCommand('USR ? TWN S ' . $ticket);
-                    } else if ($command[2] != 'OK') {
-                        $this->outputMessage(0, 'Say wha?');
-                        exit;
-                    }
-                    break;
-                case 'MSG':
-                    $profile = explode("\r\n", $this->readResponse($command[3]));
-                    foreach ($profile as $thisProfile) {
-                        $thisProfile = explode(': ', $thisProfile);
-                        if (count($thisProfile) == 2) {
-                            $this->profile[$thisProfile[0]] = $thisProfile[1];
-                        }
-                    }
-                    $this->getMembershipList();
-                    $this->getAddressBook();
-                    $this->sendCommand('BLP ? AL');
-                    break;
-                case 'BLP':
-                    $this->sendCommand('ADL ? ' . strlen($this->adl), $this->adl);
-                    $this->sendCommand('PRP ? MFN ' . $this->nickname);
-                    $this->sendCommand('CHG ? NLN');
-                    break;
-                case 'CHG':
-                    return true;
-                    break;
-                default:
-                    break;
+            if ($this->authenticated == true) {
+                $this->runUserFunction('beforeLoop');
             }
-        }
-        $this->outputMessage(0, 'Connection was terminated. We did a bad thing :(');
-        exit;
-    }
-    
-    public function handleNS() {
-        stream_set_blocking($this->connection, 0);
-        while (feof($this->connection) === false) {
-            $this->runUserFunction('beforeLoop');
             $response = $this->readResponse();
             $this->outputMessage(3, $response);
             $command = explode(' ', $response);
-            switch ($command[0]) {
-                case 'MSG':
-                    $this->readResponse($command[3]);
-                    $this->outputMessage(1, 'We don\'t care about all they just gave us!');
-                    break;
-                case 'FLN':
-                    $this->friends[$command[1]]['status'] = 'FLN';
-                    $this->outputMessage(1, $command[1] . ' just changed their status to FLN');
-                    $this->runUserFunction('friendStatusChanged', $command[1], 'FLN');
-                    break;
-                case 'NLN':
-                    $this->friends[$command[2]]['status'] = 'NLN';
-                    $this->friends[$command[2]]['name']   = urldecode($command[4]);
-                    $this->outputMessage(1, $command[4] . ' just changed their status to NLN');
-                    $this->runUserFunction('friendStatusChanged', $command[2], $command[1], $command[4]);
-                    break;
-                case 'ILN':
-                    $this->friends[$command[3]]['status'] = $command[2];
-                    $this->friends[$command[3]]['name']   = urldecode($command[5]);
-                    $this->outputMessage(1, $command[3] . ' just changed their status to ' . $command[2]);
-                    $this->runUserFunction('friendStatusChanged', $command[3], $command[2], $command[5]);
-                    break;
-                case 'UBX':
-                    $ubx = $this->readResponse($command[3]);
-                    $this->outputMessage(1, 'We don\'t care about PSMs!');
-                    break;
-                case 'CHL':
-                    $challenge = new Challenge();
-                    $this->sendCommand('QRY ? PROD0090YUAUV{2B 32', $challenge->generateCHLHash($command[2], 'PROD0090YUAUV{2B'));
-                    break;
-                case 'RNG':
-                    if ($this->runUserFunction('incomingCall', $command) === false) {
-                        $switchboard = new Switchboard();
-                        $switchboard->output = $this->output;
-                        if ($switchboard->answerCall($this->username, $command[2], $command[4], $command[1]) === true) {
-                            $this->convos[$command[5]] = $switchboard;
-                            $this->outputMessage(1, 'We can now talk to ' . $command[6] . ' (' . $command[5] . ')');
-                        }
-                    }
-                    break;
-                case 'XFR':
-                    if ($command[2] == 'SB') {
-                        $switchboard = new Switchboard();
-                        $switchboard->output = $this->output;
-                        foreach ($this->convoQueue as $toCall => $message) {
-                            if ($switchboard->callUser($this->username, $toCall, $command[3], $command[5]) === true) {
-                                $this->convos[$toCall] = $switchboard;
-                                $this->outputMessage(1, 'We can now talk to ' . $toCall);
-                                $this->convos[$toCall]->sendMessage($message);
-                                unset($this->convoQueue[$toCall]);
-                                break;
-                            }
-                        }
-                    }
-                    break;
-                case 'QNG':
-                    $this->nextPing   = mktime() + $command[1];
-                    $this->doublePing = false;
-                    break;
-                case 'ADL':
-                    $adl = $this->readResponse($command[2]);
-                    echo 'ADD REQUEST: "' . $adl . '"' . $command[2] . '<br /><br />';
-                    flush();
-                default:
-                    break;
+            if (method_exists($this, 'respondTo' . $command[0]) === true) {
+                call_user_func(array($this, 'respondTo' . $command[0]), $command);
             }
             if (count($this->convos) > 0) {
                 foreach ($this->convos as $convo) {
@@ -215,7 +100,130 @@ class MSN {
             }
         }
         $this->outputMessage(0, 'Connection was terminated. We did a bad thing :(');
-        exit;
+    }
+    
+    private function respondToVER($command) {
+        $this->sendCommand('CVR ? 0x0409 winnt 5.1 i386 MSG80BETA 8.0.0566 msmsgs ' . $this->email);
+    }
+    
+    private function respondToCVR($command) {
+        $this->sendCommand('USR ? TWN I ' . $this->email);
+    }
+    
+    private function respondToXFR($command) {
+        $server = explode(':', $command[3]);
+        if ($command[2] == 'NS') {
+            $this->currentMsg = 1;
+            if ($this->connectToServer($server[0], $server[1]) === false) {
+                exit;
+            }
+            $this->sendCommand('VER ? MSNP15 CVR0');
+        } else if ($command[2] == 'SB') {
+            $switchboard = new Switchboard();
+            $switchboard->output = $this->output;
+            foreach ($this->convoQueue as $toCall => $message) {
+                if ($switchboard->callUser($this->email, $toCall, $command[3], $command[5]) === true) {
+                    $this->convos[$toCall] = $switchboard;
+                    $this->outputMessage(1, 'We can now talk to ' . $toCall);
+                    $this->convos[$toCall]->sendMessage($message);
+                    unset($this->convoQueue[$toCall]);
+                    break;
+                }
+            }
+        }
+    }
+    
+    private function respondToGCF($command) {
+        // We don't actually use this at all, but save it just incase there are future changes
+        $this->policyXML = $this->readResponse($command[2]);
+    }
+    
+    private function respondToUSR($command) {
+        if ($command[2] == 'TWN') {
+            $ticketMaster = new Authentication();
+            $ticket = $ticketMaster->getTicket($this->email, $this->password, $command[4]);
+            if ($ticket === false) {
+                $this->outputMessage(0, 'We failed to authenticate ourselves!');
+            }
+            $this->sendCommand('USR ? TWN S ' . $ticket);
+        } else if ($command[2] != 'OK') {
+            $this->outputMessage(0, 'Something went wrong when authenticating with our TWN');
+        }
+    }
+    
+    private function respondToMSG($command) {
+        $profile = explode("\r\n", $this->readResponse($command[3]));
+        foreach ($profile as $thisProfile) {
+            $thisProfile = explode(': ', $thisProfile);
+            if (count($thisProfile) == 2) {
+                $this->profile[$thisProfile[0]] = $thisProfile[1];
+            }
+        }
+        $this->getMembershipList();
+        $this->getAddressBook();
+        $this->sendCommand('BLP ? AL');
+    }
+    
+    private function respondToBLP($command) {
+        $this->sendCommand('ADL ? ' . strlen($this->adl), $this->adl);
+        $this->sendCommand('PRP ? MFN ' . $this->nickname);
+        $this->sendCommand('CHG ? NLN');
+    }
+    
+    private function respondToCHG($command) {
+        $this->authenticated = true;
+    }
+    
+    private function respondToUBX($command) {
+        $response = $this->readResponse($command[3]);
+        $this->outputMessage(1, 'We don\'t handle Personal Status Messages or Display Pictures right now');
+    }
+    
+    private function respondToFLN($command) {
+        $this->friends[$command[1]]['status'] = 'FLN';
+        $this->outputMessage(1, $command[1] . ' just changed their status to FLN');
+        $this->runUserFunction('friendStatusChanged', $command[1], 'FLN');
+    }
+    
+    private function respondToNLN($command) {
+        $this->friends[$command[2]]['status'] = 'NLN';
+        $this->friends[$command[2]]['name']   = urldecode($command[4]);
+        $this->outputMessage(1, $command[4] . ' just changed their status to NLN');
+        $this->runUserFunction('friendStatusChanged', $command[2], $command[1], $command[4]);
+    }
+    
+    private function respondToILN($command) {
+        $this->friends[$command[3]]['status'] = $command[2];
+        $this->friends[$command[3]]['name']   = urldecode($command[5]);
+        $this->outputMessage(1, $command[3] . ' just changed their status to ' . $command[2]);
+        $this->runUserFunction('friendStatusChanged', $command[3], $command[2], $command[5]);
+    }
+    
+    private function respondToCHL($command) {
+        $challenge = new Challenge();
+        $this->sendCommand('QRY ? PROD0090YUAUV{2B 32', $challenge->generateCHLHash($command[2], 'PROD0090YUAUV{2B'));
+    }
+    
+    private function respondToRNG($command) {
+        if ($this->runUserFunction('incomingCall', $command) === false) {
+            $switchboard = new Switchboard();
+            $switchboard->output = $this->output;
+            if ($switchboard->answerCall($this->email, $command[2], $command[4], $command[1]) === true) {
+                $this->convos[$command[5]] = $switchboard;
+                $this->outputMessage(1, 'We can now talk to ' . $command[6] . ' (' . $command[5] . ')');
+            }
+        }
+    }
+    
+    private function respondToQNG($command) {
+        $this->nextPing   = mktime() + $command[1];
+        $this->doublePing = false;
+    }
+    
+    private function respondToADL($command) {
+        $adl = $this->readResponse($command[2]);
+        $this->outputMessage(1, 'ADD REQUEST: "' . $adl . '"' . $command[2]);
+        flush();
     }
     
     private function runUserFunction($function) {
@@ -229,19 +237,19 @@ class MSN {
         }
     }
     
-    public function messageUser($username, $message) {
-        if ($username == '' || $message == '') {
+    public function messageUser($email, $message) {
+        if ($email == '' || $message == '') {
             return false;
         }
-        if (isset($this->convos[$username]) === false) {
-            if ($this->convoQueue[$username] == '') {
-                $this->convoQueue[$username] =  $message;
+        if (isset($this->convos[$email]) === false) {
+            if ($this->convoQueue[$email] == '') {
+                $this->convoQueue[$email] =  $message;
                 $this->sendCommand('XFR ? SB');
             } else {
-                $this->convoQueue[$username] .= "\r\n" . $message;
+                $this->convoQueue[$email] .= "\r\n" . $message;
             }
         } else {
-            $this->convos[$username]->sendMessage($message);
+            $this->convos[$email]->sendMessage($message);
         }
     }
     
@@ -319,7 +327,9 @@ class MSN {
         if ($length != '') {
             $buffer = '';
             $killLoop = 0;
+            $buffer .= fgets($this->connection, ($length - strlen($buffer) + 1));
             while (strlen($buffer) < $length) {
+                usleep(100 * 1000); // Sleep for 100ms
                 $killLoop++;
                 if ($killLoop == 100) {
                     break;
@@ -329,7 +339,7 @@ class MSN {
         } else {
             $buffer = trim(fgets($this->connection, 4096));
         }
-		return $buffer;
+        return $buffer;
     }
     
     private function outputMessage($type, $message) {
@@ -340,9 +350,10 @@ class MSN {
         switch ($type) {
             case 0:
                 echo '<font color="red"> ' . $message . '</font>';
+                exit;
                 break;
             case 1:
-                echo '<font color="green">I -- ' . $message . '</font>';
+                echo '<font color="grey">I -- ' . $message . '</font>';
                 break;
             case 2:
                 echo '<font color="green">C >> ' . $message . '</font>';
