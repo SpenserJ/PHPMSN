@@ -55,7 +55,7 @@ class Switchboard {
                 $response = $this->readResponse();
             }
             $onHold = '';
-            $responseArray = $this->explodeResponse($response);
+            $responseArray = explode("\n", $response);
             for ($i=0; $i<count($responseArray); $i++) {
                 $this->outputMessage(3, $responseArray[$i]);
                 $command = explode(' ', $responseArray[$i]);
